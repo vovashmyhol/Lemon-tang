@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Lemon Ninja - TG Mini App</title>
+  <link rel="stylesheet" href="style.css" />
+  <!-- Telegram Web App SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Верхний интерфейс (Счёт, Жизни, Комбо) -->
+    <div id="hud">
+      <div class="hud-left">
+        <div class="score-badge">
+          <span class="label">СЧЁТ</span>
+          <span id="score">0</span>
+        </div>
+        <div class="best-badge">
+          <span class="label">РЕКОРД</span>
+          <span id="best-score">0</span>
+        </div>
+      </div>
+
+      <div class="hud-right">
+        <div id="lives-container" title="Жизни">
+          <span class="life-icon" id="life-1">🍋</span>
+          <span class="life-icon" id="life-2">🍋</span>
+          <span class="life-icon" id="life-3">🍋</span>
+        </div>
+        <button id="sound-btn" class="icon-btn" aria-label="Звук">🔊</button>
+      </div>
+    </div>
+
+    <!-- Стартовое меню / Оверлей -->
+    <div id="start-screen" class="overlay active">
+      <div class="card">
+        <div class="mascot-lemon">
+          <div class="lemon-art-preview"></div>
+        </div>
+        <h1 class="game-title">LEMON<br><span>NINJA</span></h1>
+        <p class="subtitle">Разрезай лимоны свайпом пальца!<br>Остерегайся бомб 💣</p>
+        
+        <div class="tips-box">
+          <div class="tip-item">🍋 Разрежь несколько за раз для <b>КОМБО</b></div>
+          <div class="tip-item">💣 Не трогай бомбы!</div>
+          <div class="tip-item">✨ Лови редкий золотой лимон</div>
+        </div>
+
+        <button id="start-btn" class="btn primary-btn">ИГРАТЬ</button>
+      </div>
+    </div>
+
+    <!-- Экран Game Over -->
+    <div id="game-over-screen" class="overlay">
+      <div class="card">
+        <h2 class="game-over-title">ИГРА ОКОНЧЕНА</h2>
+        <div class="stats-box">
+          <div class="stat-row">
+            <span>Твой счёт:</span>
+            <span id="final-score" class="highlight">0</span>
+          </div>
+          <div class="stat-row">
+            <span>Рекорд:</span>
+            <span id="final-best">0</span>
+          </div>
+          <div class="stat-row">
+            <span>Нарезано лимонов:</span>
+            <span id="final-lemons">0</span>
+          </div>
+          <div class="stat-row">
+            <span>Макс. комбо:</span>
+            <span id="final-combo">x0</span>
+          </div>
+        </div>
+
+        <button id="restart-btn" class="btn primary-btn">СЫГРАТЬ ЕЩЁ</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="audio.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>

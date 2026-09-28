@@ -1,0 +1,12 @@
+{
+  "name": "lemon-ninja-tg",
+  "version": "1.0.0",
+  "description": "Lemon Ninja Game for Telegram Mini Apps",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx serve -l 3000"
+  },
+  "keywords": ["telegram", "mini-app", "game", "canvas", "fruit-ninja"],
+  "author": "",
+  "license": "MIT"
+}
