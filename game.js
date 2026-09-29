@@ -1252,7 +1252,7 @@
 
     triggerHaptic('medium');
 
-    const invoiceUrl = 'https://t.me/$L_0f2xHu2EkKEwAAow2sXPxdLyQ';
+    const invoiceUrl = 'https://t.me/$HoGjOhHu4EmvEgAAvXXzp7_dB8A';
 
     if (tg?.openInvoice) {
       tg.openInvoice(invoiceUrl, (status) => {
