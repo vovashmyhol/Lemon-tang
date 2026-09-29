@@ -1,7 +1,7 @@
 {
-  "name": "lemon-ninja-tg",
+  "name": "lemon-tang",
   "version": "1.0.0",
-  "description": "Lemon Ninja Game for Telegram Mini Apps",
+  "description": "Lemon Tang Game for Telegram Mini Apps",
   "main": "index.html",
   "scripts": {
     "start": "npx serve -l 3000"

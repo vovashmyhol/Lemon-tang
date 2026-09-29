@@ -1,4 +1,4 @@
-// Lemon Ninja - Telegram Mini App Game Engine
+// Lemon Tang - Telegram Mini App Game Engine
 
 (() => {
   // --- Telegram WebApp инициализация ---
@@ -6,6 +6,22 @@
   if (tg) {
     tg.ready();
     tg.expand();
+
+    // Запрещаем случайное закрытие свайпом вниз в Telegram (Bot API 7.7+)
+    try {
+      if (typeof tg.disableVerticalSwipes === 'function') {
+        tg.disableVerticalSwipes();
+      }
+      tg.isVerticalSwipesEnabled = false;
+    } catch (e) {}
+
+    // Подтверждение при попытке закрыть мини-апп во время игры
+    try {
+      if (typeof tg.enableClosingConfirmation === 'function') {
+        tg.enableClosingConfirmation();
+      }
+    } catch (e) {}
+
     try {
       tg.setHeaderColor('#0f141c');
       tg.setBackgroundColor('#0f141c');
@@ -32,9 +48,8 @@
   const ctx = canvas.getContext('2d');
   const container = document.getElementById('game-container');
 
-  const hud = document.getElementById('hud');
+  const hud = document.getElementById('top-bar');
   const scoreEl = document.getElementById('score');
-  const bestScoreEl = document.getElementById('best-score');
   const soundBtn = document.getElementById('sound-btn');
   const startScreen = document.getElementById('start-screen');
   const gameOverScreen = document.getElementById('game-over-screen');
@@ -45,6 +60,23 @@
   const finalBestEl = document.getElementById('final-best');
   const finalLemonsEl = document.getElementById('final-lemons');
   const finalComboEl = document.getElementById('final-combo');
+  const finalRevivesEl = document.getElementById('final-revives');
+  const menuBestScoreEl = document.getElementById('menu-best-score');
+  const soundIconOn = document.getElementById('sound-icon-on');
+  const soundIconOff = document.getElementById('sound-icon-off');
+
+  const reviveScreen = document.getElementById('revive-screen');
+  const reviveBtn = document.getElementById('revive-btn');
+  const reviveProgressFill = document.getElementById('revive-progress-fill');
+  const reviveCountdown = document.getElementById('revive-countdown');
+  const verifyBtn = document.getElementById('verify-btn');
+  const shareBtn = document.getElementById('share-btn');
+  const verifyStatusEl = document.getElementById('verify-status');
+  const primaryMetricCard = document.querySelector('.metric-card.primary-metric');
+  const prizesScreen = document.getElementById('prizes-screen');
+  const prizesChannelBtn = document.getElementById('prizes-channel-btn');
+  const prizesBackBtn = document.getElementById('prizes-back-btn');
+  const openPrizesBtns = document.querySelectorAll('.open-prizes-btn');
 
   const lifeIcons = [
     document.getElementById('life-1'),
@@ -52,17 +84,36 @@
     document.getElementById('life-3')
   ];
 
+  // --- Нижний Dock ---
+  const dockItems = document.querySelectorAll('.dock-item');
+  dockItems.forEach(item => {
+    item.addEventListener('click', () => {
+      dockItems.forEach(d => d.classList.remove('active'));
+      item.classList.add('active');
+      triggerHaptic('light');
+    });
+  });
+
   // --- Состояние игры ---
   let width = 0;
   let height = 0;
   let dpr = 1;
 
-  let gameState = 'START'; // 'START' | 'PLAYING' | 'GAMEOVER'
+  let gameState = 'START'; // 'START' | 'PLAYING' | 'REVIVE' | 'GAMEOVER'
   let score = 0;
   let bestScore = parseInt(localStorage.getItem('lemon_ninja_best') || '0', 10);
+  let previousBestScore = bestScore;
   let lives = 3;
   let slicedLemonsCount = 0;
+  let goldenSlicedCount = 0; // Для античит-проверки
   let maxComboCount = 0;
+  let hasRevived = false;
+  let reviveCount = 0;
+  let reviveTimerId = null;
+  let lottiePlayer = null;
+  // Теневой счётчик очков — независимо накапливается по каждому срезу
+  let _shadowScore = 0;
+  let _shadowComboBonus = 0;
 
   // Игровые объекты
   let activeItems = [];
@@ -98,8 +149,7 @@
   }
   window.addEventListener('resize', resize);
   resize();
-
-  bestScoreEl.textContent = bestScore;
+  if (menuBestScoreEl) menuBestScoreEl.textContent = bestScore;
 
   // --- Вспомогательные функции ---
   function randomRange(min, max) {
@@ -403,25 +453,25 @@
     }
   }
 
-  // --- Частицы сока ---
+  // --- Частицы сока (вытянутые капли по вектору полета) ---
   class JuiceDrop {
     constructor(x, y, isGolden = false) {
       this.x = x;
       this.y = y;
-      this.radius = randomRange(2.5, 6);
+      this.radius = randomRange(2.2, 5.2);
       const angle = randomRange(0, Math.PI * 2);
-      const speed = randomRange(120, 420);
+      const speed = randomRange(140, 480);
       this.vx = Math.cos(angle) * speed;
       this.vy = Math.sin(angle) * speed;
       this.alpha = 1;
-      this.decay = randomRange(0.8, 1.8);
-      this.color = isGolden ? '#ffea00' : (Math.random() < 0.3 ? '#ffffff' : '#ffd000');
+      this.decay = randomRange(1.1, 2.1);
+      this.color = isGolden ? '#ffea00' : (Math.random() < 0.25 ? '#ffffff' : '#ffd000');
     }
 
     update(dt) {
       this.x += this.vx * dt;
       this.y += this.vy * dt;
-      this.vy += gravity * 0.6 * dt;
+      this.vy += gravity * 0.65 * dt;
       this.alpha -= this.decay * dt;
     }
 
@@ -430,9 +480,22 @@
       ctx.save();
       ctx.globalAlpha = Math.max(0, this.alpha);
       ctx.fillStyle = this.color;
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-      ctx.fill();
+
+      const speed = Math.hypot(this.vx, this.vy);
+      if (speed > 60) {
+        // Капля вытягивается по направлению полета
+        const moveAngle = Math.atan2(this.vy, this.vx);
+        const stretch = Math.min(speed / 75, 2.8);
+        ctx.translate(this.x, this.y);
+        ctx.rotate(moveAngle);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, this.radius * stretch, this.radius, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
     }
   }
@@ -500,28 +563,117 @@
     }
   }
 
-  // --- Пятна сока на фоне ---
+  // --- Сочные следы брызг сока на фоне (Fruit Ninja style) ---
   class BackgroundSplat {
-    constructor(x, y, isGolden = false) {
+    constructor(x, y, cutAngle = 0, isGolden = false) {
       this.x = x;
       this.y = y;
-      this.radius = randomRange(30, 65);
-      this.alpha = 0.22;
-      this.color = isGolden ? '#ffb703' : '#ffd000';
+      this.angle = cutAngle; // Угол разреза (след ложится по свайпу)
+      this.alpha = 0.42; // Сочный и заметный
+      this.decay = randomRange(0.045, 0.08); // Постепенно растворяется / впитывается
+      this.color = isGolden ? '#f59e0b' : '#facc15';
+      this.innerColor = isGolden ? '#fef3c7' : '#fef9c3';
+
+      // Размеры главного следа
+      this.slashLength = randomRange(65, 120);
+      this.slashWidth = randomRange(16, 28);
+
+      // Органический неровный контур кляксы (не кругляк, а рваный сочный след)
+      const pointsCount = 14;
+      this.contour = [];
+      for (let i = 0; i < pointsCount; i++) {
+        const theta = (i / pointsCount) * Math.PI * 2;
+        // Сильно вытягиваем вдоль оси X (направление удара)
+        const stretchX = 1 + 1.2 * Math.pow(Math.cos(theta), 2);
+        const radius = randomRange(10, 22) * stretchX;
+        this.contour.push({
+          x: Math.cos(theta) * radius * 1.3,
+          y: Math.sin(theta) * radius * 0.45 + randomRange(-4, 4)
+        });
+      }
+
+      // Разлетающиеся капли вокруг следа разреза
+      this.droplets = [];
+      const dropCount = Math.floor(randomRange(6, 12));
+      for (let i = 0; i < dropCount; i++) {
+        const side = Math.random() < 0.5 ? 1 : -1;
+        const distAlong = randomRange(-this.slashLength * 0.65, this.slashLength * 0.65);
+        const distOut = randomRange(12, 38) * side;
+        this.droplets.push({
+          x: distAlong,
+          y: distOut,
+          r: randomRange(2.0, 5.5)
+        });
+      }
+
+      // Тонкие струйки / брызги в стороны
+      this.streaks = [];
+      const streakCount = Math.floor(randomRange(2, 4));
+      for (let i = 0; i < streakCount; i++) {
+        const dir = Math.random() < 0.5 ? 1 : -1;
+        const len = randomRange(35, this.slashLength * 0.85);
+        this.streaks.push({
+          x1: dir * randomRange(4, 12),
+          y1: randomRange(-3, 3),
+          x2: dir * len,
+          y2: randomRange(-14, 14),
+          w: randomRange(2.5, 4.5)
+        });
+      }
     }
 
     update(dt) {
-      this.alpha -= 0.025 * dt;
+      this.alpha -= this.decay * dt;
     }
 
     draw(ctx) {
       if (this.alpha <= 0) return;
       ctx.save();
+      ctx.translate(this.x, this.y);
+      ctx.rotate(this.angle);
       ctx.globalAlpha = Math.max(0, this.alpha);
+
+      // 1. Тонкие струйки-подтеки сока по краям
+      ctx.strokeStyle = this.color;
+      ctx.lineCap = 'round';
+      for (const streak of this.streaks) {
+        ctx.lineWidth = streak.w;
+        ctx.beginPath();
+        ctx.moveTo(streak.x1, streak.y1);
+        ctx.lineTo(streak.x2, streak.y2);
+        ctx.stroke();
+      }
+
+      // 2. Основное органическое пятно-след свайпа
       ctx.fillStyle = this.color;
       ctx.beginPath();
-      ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+      if (this.contour.length > 2) {
+        ctx.moveTo(this.contour[0].x, this.contour[0].y);
+        for (let i = 1; i < this.contour.length; i++) {
+          const prev = this.contour[i - 1];
+          const curr = this.contour[i];
+          const midX = (prev.x + curr.x) / 2;
+          const midY = (prev.y + curr.y) / 2;
+          ctx.quadraticCurveTo(prev.x, prev.y, midX, midY);
+        }
+        ctx.closePath();
+      }
       ctx.fill();
+
+      // 3. Более светлое «ядро» сока по центру среза
+      ctx.fillStyle = this.innerColor;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, this.slashLength * 0.35, this.slashWidth * 0.28, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 4. Отдельные капли сока вокруг следа
+      ctx.fillStyle = this.color;
+      for (const drop of this.droplets) {
+        ctx.beginPath();
+        ctx.arc(drop.x, drop.y, drop.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
       ctx.restore();
     }
   }
@@ -585,6 +737,7 @@
       if (currentSwipeCombo >= 2) {
         const bonus = currentSwipeCombo * 5;
         score += bonus;
+        _shadowComboBonus += bonus;
         scoreEl.textContent = score;
 
         if (currentSwipeCombo > maxComboCount) {
@@ -621,8 +774,10 @@
     // Разрезание лимона
     slicedLemonsCount++;
     const isGolden = item.type === 'GOLDEN';
+    if (isGolden) goldenSlicedCount++;
     const points = isGolden ? 50 : 10;
     score += points;
+    _shadowScore += points;
     scoreEl.textContent = score;
 
     if (isGolden) {
@@ -645,9 +800,9 @@
       particles.push(new JuiceDrop(item.x, item.y, isGolden));
     }
 
-    // Пятно на фоне
-    backgroundSplats.push(new BackgroundSplat(item.x, item.y, isGolden));
-    if (backgroundSplats.length > 8) {
+    // Сочный след удара/брызг на фоне
+    backgroundSplats.push(new BackgroundSplat(item.x, item.y, cutAngle, isGolden));
+    if (backgroundSplats.length > 14) {
       backgroundSplats.shift();
     }
   }
@@ -671,26 +826,164 @@
     });
 
     if (lives <= 0) {
-      endGame();
+      if (!hasRevived) {
+        showReviveScreen();
+      } else {
+        endGame();
+      }
     }
+  }
+
+  // --- Lottie Анимация стикера ---
+  function initLottieSticker() {
+    const container = document.getElementById('lottie-lemon-container');
+    if (!container || !window.lottie) return;
+
+    if (lottiePlayer) {
+      lottiePlayer.goToAndPlay(0, true);
+      return;
+    }
+
+    try {
+      lottiePlayer = window.lottie.loadAnimation({
+        container: container,
+        renderer: 'svg',
+        loop: true,
+        autoplay: true,
+        path: 'https://raw.githubusercontent.com/vovashmyhol/Lemon-tang/refs/heads/main/AgADhxAAAgdYMEo.json'
+      });
+    } catch (e) {
+      console.warn("Lottie error", e);
+    }
+  }
+
+  // --- Lottie Анимация для модалки Призов (lemon.json) ---
+  let prizesLottiePlayer = null;
+  function initPrizesLottie() {
+    const container = document.getElementById('lottie-prizes-container');
+    if (!container || !window.lottie) return;
+
+    if (prizesLottiePlayer) {
+      prizesLottiePlayer.goToAndPlay(0, true);
+      return;
+    }
+
+    try {
+      prizesLottiePlayer = window.lottie.loadAnimation({
+        container: container,
+        renderer: 'svg',
+        loop: true,
+        autoplay: true,
+        path: 'https://raw.githubusercontent.com/vovashmyhol/Lemon-tang/refs/heads/main/lemon.json'
+      });
+    } catch (e) {
+      console.warn("Lottie prizes error", e);
+    }
+  }
+
+  function openPrizesModal() {
+    triggerHaptic('light');
+    if (prizesScreen) {
+      prizesScreen.classList.add('active');
+      initPrizesLottie();
+    }
+  }
+
+  function closePrizesModal() {
+    triggerHaptic('light');
+    if (prizesScreen) {
+      prizesScreen.classList.remove('active');
+    }
+  }
+
+  // --- Окно Возрождения (5 секунд обратный отсчет) ---
+  function showReviveScreen() {
+    gameState = 'REVIVE';
+    reviveScreen.classList.add('active');
+    document.getElementById('bottom-dock')?.classList.add('dock-hidden');
+    initLottieSticker();
+
+    const duration = 5.0; // 5 секунд
+    const startTime = performance.now();
+    reviveProgressFill.style.width = '100%';
+    reviveCountdown.textContent = '(5.0с)';
+
+    if (reviveTimerId) {
+      cancelAnimationFrame(reviveTimerId);
+      reviveTimerId = null;
+    }
+
+    function stepTimer() {
+      if (gameState !== 'REVIVE') return;
+
+      const elapsed = (performance.now() - startTime) / 1000;
+      const remaining = Math.max(0, duration - elapsed);
+      const ratio = remaining / duration;
+
+      reviveProgressFill.style.width = (ratio * 100).toFixed(1) + '%';
+      reviveCountdown.textContent = `(${remaining.toFixed(1)}с)`;
+
+      if (remaining <= 0) {
+        reviveScreen.classList.remove('active');
+        endGame();
+      } else {
+        reviveTimerId = requestAnimationFrame(stepTimer);
+      }
+    }
+
+    reviveTimerId = requestAnimationFrame(stepTimer);
+  }
+
+  function revivePlayer() {
+    reviveCount++;
+    hasRevived = false; // Позволяет брать продолжение снова, если игрок готов оплачивать
+    lives = 3;
+    lifeIcons.forEach(icon => icon.classList.remove('lost'));
+
+    // Убираем бомбы с экрана, чтобы не подорваться сразу после возврата
+    activeItems = activeItems.filter(item => item.type !== 'BOMB');
+
+    window.soundFX.playGoldenSlice();
+    triggerHaptic('heavy');
+
+    reviveScreen.classList.remove('active');
+    gameState = 'PLAYING';
+    document.getElementById('bottom-dock')?.classList.add('dock-hidden');
   }
 
   function endGame() {
     gameState = 'GAMEOVER';
 
+    if (reviveTimerId) {
+      cancelAnimationFrame(reviveTimerId);
+      reviveTimerId = null;
+    }
+
+    previousBestScore = bestScore;
     if (score > bestScore) {
       bestScore = score;
       localStorage.setItem('lemon_ninja_best', bestScore.toString());
-      bestScoreEl.textContent = bestScore;
+      if (menuBestScoreEl) menuBestScoreEl.textContent = bestScore;
     }
 
     finalScoreEl.textContent = score;
     finalBestEl.textContent = bestScore;
     finalLemonsEl.textContent = slicedLemonsCount;
     finalComboEl.textContent = `x${maxComboCount}`;
+    if (finalRevivesEl) finalRevivesEl.textContent = reviveCount;
+
+    // Сброс статуса проверки античита
+    if (verifyStatusEl) {
+      verifyStatusEl.className = 'verify-status hidden';
+      verifyStatusEl.textContent = '';
+    }
+    if (primaryMetricCard) {
+      primaryMetricCard.classList.remove('tamper-reset', 'tamper-ok');
+    }
 
     setTimeout(() => {
       gameOverScreen.classList.add('active');
+      document.getElementById('bottom-dock')?.classList.remove('dock-hidden');
     }, 450);
   }
 
@@ -698,8 +991,13 @@
     window.soundFX.init();
     score = 0;
     lives = 3;
+    hasRevived = false;
+    reviveCount = 0;
     slicedLemonsCount = 0;
+    goldenSlicedCount = 0;
     maxComboCount = 0;
+    _shadowScore = 0;
+    _shadowComboBonus = 0;
     activeItems = [];
     halfLemons = [];
     particles = [];
@@ -708,11 +1006,19 @@
     touchTrail = [];
     spawnTimer = 0;
 
+    if (reviveTimerId) {
+      cancelAnimationFrame(reviveTimerId);
+      reviveTimerId = null;
+    }
+
     scoreEl.textContent = '0';
     lifeIcons.forEach(icon => icon.classList.remove('lost'));
 
     startScreen.classList.remove('active');
+    reviveScreen.classList.remove('active');
     gameOverScreen.classList.remove('active');
+    prizesScreen?.classList.remove('active');
+    document.getElementById('bottom-dock')?.classList.add('dock-hidden');
 
     gameState = 'PLAYING';
     triggerHaptic('light');
@@ -732,6 +1038,7 @@
 
   function onPointerDown(e) {
     if (e.target !== canvas) return;
+    if (e.cancelable) e.preventDefault();
     window.soundFX.init();
     isPointerDown = true;
     currentSwipeCombo = 0;
@@ -740,6 +1047,7 @@
 
   function onPointerMove(e) {
     if (!isPointerDown) return;
+    if (e.cancelable) e.preventDefault();
     const pt = getPointerPos(e);
     const lastPt = touchTrail[touchTrail.length - 1];
 
@@ -755,28 +1063,229 @@
     touchTrail.push(pt);
   }
 
-  function onPointerUp() {
+  function onPointerUp(e) {
+    if (isPointerDown && e && e.cancelable) e.preventDefault();
     isPointerDown = false;
     currentSwipeCombo = 0;
   }
 
+  // Мышь
   window.addEventListener('mousedown', onPointerDown);
   window.addEventListener('mousemove', onPointerMove);
   window.addEventListener('mouseup', onPointerUp);
 
-  window.addEventListener('touchstart', onPointerDown, { passive: true });
-  window.addEventListener('touchmove', onPointerMove, { passive: true });
-  window.addEventListener('touchend', onPointerUp, { passive: true });
-  window.addEventListener('touchcancel', onPointerUp, { passive: true });
+  // Тач-события с { passive: false } для предотвращения закрытия Telegram Mini App
+  canvas.addEventListener('touchstart', onPointerDown, { passive: false });
+  canvas.addEventListener('touchmove', onPointerMove, { passive: false });
+  canvas.addEventListener('touchend', onPointerUp, { passive: false });
+  canvas.addEventListener('touchcancel', onPointerUp, { passive: false });
+
+  // Глобальная блокировка свайпа закрытия во время нарезки лимонов
+  window.addEventListener('touchmove', (e) => {
+    if (gameState === 'PLAYING' && e.cancelable) {
+      e.preventDefault();
+    }
+  }, { passive: false });
 
   // Кнопки интерфейса
   startBtn.addEventListener('click', startGame);
   restartBtn.addEventListener('click', startGame);
 
+  // Кнопка проверки результата (античит)
+  verifyBtn.addEventListener('click', () => {
+    if (verifyBtn.classList.contains('verifying')) return;
+
+    triggerHaptic('light');
+    verifyBtn.classList.remove('verified', 'cheat-detected');
+    verifyBtn.classList.add('verifying');
+
+    // На время проверки скрываем прошлый статус и сбрасываем стили карточки
+    if (verifyStatusEl) {
+      verifyStatusEl.className = 'verify-status hidden';
+      verifyStatusEl.textContent = '';
+    }
+    if (primaryMetricCard) {
+      primaryMetricCard.classList.remove('tamper-reset', 'tamper-ok');
+    }
+
+    setTimeout(() => {
+      verifyBtn.classList.remove('verifying');
+
+      // 1. Честный расчёт из фактических игровых событий
+      const realBase = (slicedLemonsCount - goldenSlicedCount) * 10 + goldenSlicedCount * 50;
+      const realScore = realBase + _shadowComboBonus;
+
+      // 2. Считываем то, что сейчас отображается на экране в DOM
+      const displayedScore = parseInt(finalScoreEl.textContent.trim(), 10);
+      const isTampered = isNaN(displayedScore) || displayedScore !== realScore || score !== realScore;
+
+      if (isTampered) {
+        // НАКРУТКА ОБНАРУЖЕНА! Перезагружаем результат до честного!
+        triggerHaptic('error');
+        window.soundFX.playBomb();
+
+        // Перезаписываем отображение и внутреннее состояние
+        finalScoreEl.textContent = realScore;
+        score = realScore;
+
+        // Если из-за накрутки был испорчен рекорд — откатываем
+        bestScore = Math.max(previousBestScore, realScore);
+        localStorage.setItem('lemon_ninja_best', bestScore.toString());
+        finalBestEl.textContent = bestScore;
+        if (menuBestScoreEl) menuBestScoreEl.textContent = bestScore;
+
+        // Визуальная реакция: тряска карточки + красный цвет
+        if (primaryMetricCard) {
+          primaryMetricCard.classList.remove('tamper-ok');
+          void primaryMetricCard.offsetWidth;
+          primaryMetricCard.classList.add('tamper-reset');
+        }
+
+        // Показываем плашку с информацией о сбросе
+        if (verifyStatusEl) {
+          verifyStatusEl.className = 'verify-status status-tampered';
+          const fakeVal = isNaN(displayedScore) ? '???' : displayedScore;
+          verifyStatusEl.innerHTML = `⚠️ Накрутка удалена! Счёт: <span style="text-decoration:line-through;opacity:0.75">${fakeVal}</span> ➔ <b>${realScore}</b>`;
+        }
+
+        // Кнопка показывает предупреждающий значок
+        verifyBtn.classList.add('cheat-detected');
+        verifyBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>`;
+
+        setTimeout(() => {
+          verifyBtn.classList.remove('cheat-detected');
+          verifyBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>`;
+        }, 2500);
+
+      } else {
+        // ВСЁ ЧЕСТНО! Подтверждаем результат
+        triggerHaptic('medium');
+
+        if (primaryMetricCard) {
+          primaryMetricCard.classList.remove('tamper-reset');
+          void primaryMetricCard.offsetWidth;
+          primaryMetricCard.classList.add('tamper-ok');
+        }
+
+        if (verifyStatusEl) {
+          verifyStatusEl.className = 'verify-status status-ok';
+          verifyStatusEl.innerHTML = `Данные подлинны: <b>${realScore}</b> очков`;
+        }
+
+        verifyBtn.classList.add('verified');
+        verifyBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>`;
+
+        setTimeout(() => {
+          verifyBtn.classList.remove('verified');
+          verifyBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>`;
+        }, 2000);
+      }
+    }, 900);
+  });
+
+  // Кнопка «Поделиться в Telegram»
+  shareBtn.addEventListener('click', () => {
+    triggerHaptic('medium');
+
+    const currentScore = parseInt(finalScoreEl.textContent.trim(), 10) || score;
+    const shareText = `🍋 Я набрал ${currentScore} очков, иду на победу главного приза ))`;
+
+    // Ссылка на бот Lemon Tang
+    const appUrl = 'https://t.me/TangLemonBot';
+    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(appUrl)}&text=${encodeURIComponent(shareText)}`;
+
+    if (tg?.openTelegramLink) {
+      tg.openTelegramLink(shareUrl);
+    } else {
+      window.open(shareUrl, '_blank');
+    }
+  });
+
+  // Кнопки открытия модалки Призов (под «Начать игру» и «Сыграть снова»)
+  openPrizesBtns.forEach(btn => {
+    btn.addEventListener('click', openPrizesModal);
+  });
+
+  if (prizesBackBtn) {
+    prizesBackBtn.addEventListener('click', closePrizesModal);
+  }
+
+  if (prizesChannelBtn) {
+    prizesChannelBtn.addEventListener('click', () => {
+      triggerHaptic('medium');
+      const channelUrl = 'https://t.me/voco_in';
+      if (tg?.openTelegramLink) {
+        tg.openTelegramLink(channelUrl);
+      } else {
+        window.open(channelUrl, '_blank');
+      }
+    });
+  }
+
+  // Закрытие по клику на затемненный фон модалки
+  if (prizesScreen) {
+    prizesScreen.addEventListener('click', (e) => {
+      if (e.target === prizesScreen) {
+        closePrizesModal();
+      }
+    });
+  }
+
+  reviveBtn.addEventListener('click', () => {
+    if (gameState !== 'REVIVE') return;
+
+    // Останавливаем таймер на время оплаты
+    if (reviveTimerId) {
+      cancelAnimationFrame(reviveTimerId);
+      reviveTimerId = null;
+    }
+
+    triggerHaptic('medium');
+
+    const invoiceUrl = 'https://t.me/$L_0f2xHu2EkKEwAAow2sXPxdLyQ';
+
+    if (tg?.openInvoice) {
+      tg.openInvoice(invoiceUrl, (status) => {
+        if (status === 'paid') {
+          revivePlayer();
+        } else {
+          // Если пользователь закрыл счёт или не оплатил
+          reviveScreen.classList.remove('active');
+          endGame();
+        }
+      });
+    } else {
+      // При тестировании в обычном браузере
+      const testPaid = confirm("Telegram Stars Invoice:\n10 ⭐ за возобновление игры.\n\nПодтвердить оплату и продолжить?");
+      if (testPaid) {
+        revivePlayer();
+      } else {
+        reviveScreen.classList.remove('active');
+        endGame();
+      }
+    }
+  });
+
   soundBtn.addEventListener('click', () => {
     window.soundFX.init();
     const isEnabled = window.soundFX.toggle();
-    soundBtn.textContent = isEnabled ? '🔊' : '🔇';
+    if (isEnabled) {
+      soundIconOn.classList.remove('hidden');
+      soundIconOff.classList.add('hidden');
+    } else {
+      soundIconOn.classList.add('hidden');
+      soundIconOff.classList.remove('hidden');
+    }
     triggerHaptic('light');
   });
 
@@ -873,14 +1382,16 @@
     // 3. Активные летящие фрукты и бомбы
     for (let i = activeItems.length - 1; i >= 0; i--) {
       const item = activeItems[i];
-      item.update(dt);
+      if (gameState === 'PLAYING') {
+        item.update(dt);
+      }
 
       if (!item.sliced) {
         item.draw(ctx);
       }
 
-      // Проверка падения за пределы экрана
-      if (item.y > height + 80) {
+      // Проверка падения за пределы экрана (только во время активной игры)
+      if (gameState === 'PLAYING' && item.y > height + 80) {
         if (!item.sliced && (item.type === 'LEMON' || item.type === 'CROSS_SECTION')) {
           // Игрок упустил целый лимон!
           loseLife(false);
