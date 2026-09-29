@@ -881,6 +881,30 @@
     }
   }
 
+  // --- Lottie Анимация для стартовой модалки (hi.json) ---
+  let startLottiePlayer = null;
+  function initStartLottie() {
+    const container = document.getElementById('lottie-start-container');
+    if (!container || !window.lottie) return;
+
+    if (startLottiePlayer) {
+      startLottiePlayer.goToAndPlay(0, true);
+      return;
+    }
+
+    try {
+      startLottiePlayer = window.lottie.loadAnimation({
+        container: container,
+        renderer: 'svg',
+        loop: true,
+        autoplay: true,
+        path: 'https://raw.githubusercontent.com/vovashmyhol/Lemon-tang/refs/heads/main/hi.json'
+      });
+    } catch (e) {
+      console.warn("Lottie start error", e);
+    }
+  }
+
   function openPrizesModal() {
     triggerHaptic('light');
     if (prizesScreen) {
@@ -1018,6 +1042,10 @@
     reviveScreen.classList.remove('active');
     gameOverScreen.classList.remove('active');
     prizesScreen?.classList.remove('active');
+    if (nftToast) {
+      nftToast.classList.remove('show');
+      nftToast.classList.add('hidden');
+    }
     document.getElementById('bottom-dock')?.classList.add('dock-hidden');
 
     gameState = 'PLAYING';
@@ -1241,6 +1269,54 @@
     });
   }
 
+  // --- Кнопка NFT в стартовой модалке ---
+  const startNftBtn = document.getElementById('start-nft-btn');
+  const nftToast = document.getElementById('nft-toast');
+  let nftToastTimer = null;
+
+  function showNftNotice() {
+    triggerHaptic('medium');
+
+    const msg = "Скоро можно будет получать от обычных до NFT подарков, играя в игру!";
+
+    if (nftToast) {
+      nftToast.classList.remove('hidden');
+      void nftToast.offsetWidth;
+      nftToast.classList.add('show');
+
+      if (nftToastTimer) {
+        clearTimeout(nftToastTimer);
+      }
+      nftToastTimer = setTimeout(() => {
+        nftToast.classList.remove('show');
+        setTimeout(() => {
+          nftToast.classList.add('hidden');
+        }, 300);
+      }, 3500);
+    } else if (tg?.showAlert) {
+      tg.showAlert(msg);
+    } else {
+      alert(msg);
+    }
+  }
+
+  if (startNftBtn) {
+    startNftBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showNftNotice();
+    });
+  }
+
+  if (nftToast) {
+    nftToast.addEventListener('click', () => {
+      if (nftToastTimer) clearTimeout(nftToastTimer);
+      nftToast.classList.remove('show');
+      setTimeout(() => {
+        nftToast.classList.add('hidden');
+      }, 300);
+    });
+  }
+
   reviveBtn.addEventListener('click', () => {
     if (gameState !== 'REVIVE') return;
 
@@ -1288,6 +1364,16 @@
     }
     triggerHaptic('light');
   });
+
+  const profileBtn = document.getElementById('profile-btn');
+  if (profileBtn) {
+    profileBtn.addEventListener('click', () => {
+      triggerHaptic('light');
+    });
+  }
+
+  // Запуск Lottie-анимации в стартовой модалке
+  initStartLottie();
 
   // --- Рисование следа лезвия (Blade Trail) ---
   function drawBladeTrail(ctx) {

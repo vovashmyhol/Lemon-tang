@@ -99,14 +99,16 @@
     <!-- Стартовая модалка (выезжает снизу как на фото 2) -->
     <div id="start-screen" class="bottom-sheet-overlay active">
       <div class="bottom-sheet">
-        <div class="sheet-header">
+        <div class="sheet-header start-sheet-header">
+          <button class="nft-badge-btn" id="start-nft-btn" title="NFT">
+            <img src="nft.svg" class="nft-badge-icon" alt="NFT" />
+            <span class="nft-badge-text">NFT</span>
+          </button>
           <div class="sheet-handle"></div>
         </div>
 
         <div class="sheet-body">
-          <div class="lemon-halo">
-            <div class="lemon-core"></div>
-          </div>
+          <div id="lottie-start-container" class="start-lottie-wrap"></div>
 
           <h1 class="sheet-title">Lemon Tang</h1>
           <p class="sheet-subtitle">Разрезай лимоны взмахом пальца.<br>Избегай детонаторов и бомб.</p>
@@ -261,6 +263,12 @@
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- Всплывающий тост для NFT -->
+    <div id="nft-toast" class="nft-toast hidden">
+      <img src="nft.svg" class="nft-toast-icon" alt="NFT" />
+      <span class="nft-toast-text">Скоро можно будет получать от обычных до NFT подарков, играя в игру!</span>
     </div>
   </div>
 
