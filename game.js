@@ -67,6 +67,7 @@
 
   const reviveScreen = document.getElementById('revive-screen');
   const reviveBtn = document.getElementById('revive-btn');
+  const reviveCostText = document.getElementById('revive-cost-text');
   const reviveProgressFill = document.getElementById('revive-progress-fill');
   const reviveCountdown = document.getElementById('revive-countdown');
   const verifyBtn = document.getElementById('verify-btn');
@@ -921,11 +922,32 @@
   }
 
   // --- Окно Возрождения (5 секунд обратный отсчет) ---
+  // Тарифы Stars за продолжение игры
+  const REVIVE_TIERS = [
+    { stars: 10, url: 'https://t.me/$SSmeg-MI6UkEFwAAxKUCovtOldw' }, // 1-е продолжение (reviveCount === 0)
+    { stars: 20, url: 'https://t.me/$reu-F-MI6UkFFwAAGQlC_lOMv-U' }, // 2-е продолжение (reviveCount === 1)
+    { stars: 30, url: 'https://t.me/$l6UnxeMI6UkHFwAAM91zAZjpSLU' }, // 3-е продолжение (reviveCount === 2)
+    { stars: 45, url: 'https://t.me/$LQNJgOMI6UkIFwAArmoOpAwNcNs' }, // 4-е и последующие (reviveCount >= 3)
+  ];
+
+  function getReviveTier(count) {
+    if (count < 0) count = 0;
+    if (count >= REVIVE_TIERS.length) {
+      return REVIVE_TIERS[REVIVE_TIERS.length - 1];
+    }
+    return REVIVE_TIERS[count];
+  }
+
   function showReviveScreen() {
     gameState = 'REVIVE';
     reviveScreen.classList.add('active');
     document.getElementById('bottom-dock')?.classList.add('dock-hidden');
     initLottieSticker();
+
+    const currentTier = getReviveTier(reviveCount);
+    if (reviveCostText) {
+      reviveCostText.textContent = `Возобновить за ${currentTier.stars}`;
+    }
 
     const duration = 5.0; // 5 секунд
     const startTime = performance.now();
@@ -1328,7 +1350,9 @@
 
     triggerHaptic('medium');
 
-    const invoiceUrl = 'https://t.me/$HoGjOhHu4EmvEgAAvXXzp7_dB8A';
+    const currentTier = getReviveTier(reviveCount);
+    const invoiceUrl = currentTier.url;
+    const starsAmount = currentTier.stars;
 
     if (tg?.openInvoice) {
       tg.openInvoice(invoiceUrl, (status) => {
@@ -1342,7 +1366,7 @@
       });
     } else {
       // При тестировании в обычном браузере
-      const testPaid = confirm("Telegram Stars Invoice:\n10 ⭐ за возобновление игры.\n\nПодтвердить оплату и продолжить?");
+      const testPaid = confirm(`Telegram Stars Invoice:\n${starsAmount} ⭐ за возобновление игры.\n\nПодтвердить оплату и продолжить?`);
       if (testPaid) {
         revivePlayer();
       } else {
